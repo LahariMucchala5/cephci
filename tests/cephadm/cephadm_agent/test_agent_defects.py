@@ -481,7 +481,7 @@ def run_failover_resilience_test(ceph_cluster, installer):
 
     log.info("Stopping agent on target host (keep stopped through failover)...")
     target_node.exec_command(sudo=True, cmd=f"systemctl stop {service_name}")
-    time.sleep(5)
+    time.sleep(180)
 
     log.info("Triggering MGR failover while agent is stopped...")
     shell(installer, "ceph mgr fail")
