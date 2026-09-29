@@ -1,3 +1,8 @@
+import json
+import re
+
+from looseversion import LooseVersion
+
 from ceph.ceph_admin.common import config_dict_to_string
 from utility.log import Log
 
@@ -29,6 +34,22 @@ class ExecuteCommandMixin:
 
         return _path
 
+    def get_ceph_version(self):
+        """Return the Ceph version string from the gateway node (cached)."""
+        if not getattr(self, "_ceph_version_cache", None):
+            out, _ = self.node.exec_command(
+                sudo=True, cmd="ceph version -f json", check_ec=False
+            )
+            data = json.loads(out)
+            version_string = data.get("version", "")
+            match = re.search(r"ceph version (\S+)", version_string)
+            if not match:
+                raise ValueError(
+                    f"Could not parse ceph version from: {version_string!r}"
+                )
+            self._ceph_version_cache = match.group(1)
+        return self._ceph_version_cache
+
     def run_nvme_cli(self, entity, action, **kwargs):
         LOG.info(f"NVMe CLI command : {entity} {action}")
         base_cmd_args = kwargs.get("base_cmd_args", {})
@@ -42,6 +63,14 @@ class ExecuteCommandMixin:
             base_cmd_args.update({"server-port": self.port})
 
         cmd_args = kwargs.get("args", {})
+
+        # --rbd-image-size was introduced in 9.2+ (>= 20.2.1 builds)
+        # Older 8.x/7.x CLI uses --size instead — translate here same as v2 does
+        if "rbd-image-size" in cmd_args:
+            ceph_version = self.get_ceph_version()
+            if LooseVersion(ceph_version) < LooseVersion("20.2.1"):
+                cmd_args["size"] = cmd_args.pop("rbd-image-size")
+
         command = " ".join(
             [
                 self.BASE_CMD,
